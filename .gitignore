@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Test outputs
+*.aac
+*.wav
+*.m4a
+output/
+output_*/
+*_output/
+patched/
+recovered_*/
+
+# Temp files
+temp_*
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
