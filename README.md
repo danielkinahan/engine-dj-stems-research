@@ -4,75 +4,145 @@ Reverse engineering research on Engine DJ Desktop's `.stems` file format/encrypt
 
 ## In short, the format is protected
 
-**Engine DJ `.stems` files cannot be decoded with standard AAC decoders.** The audio data appears to be encrypted or uses a proprietary codec masquerading as AAC.
+**Engine DJ `.stems` files use custom proprietary encryption.** After testing 7 decryption methods, the algorithm remains unknown.
 
-### Status: Partial Success ⚠️
+### Key Findings
 
-**What Works:**
-- ✅ Encryption mechanism fully understood (XOR cipher with 128-byte keys)
-- ✅ 10 encryption keys successfully extracted
-- ✅ First ~0.85 seconds of audio properly decrypted
-- ✅ Proof-of-concept: 4 individual stems extracted (drums, bass, melody, vocals)
+**What We Know:**
+- ✅ Complete file structure mapped (128-byte + 1520-byte frame pattern)
+- ✅ All keys extracted (19,754 + 14,623 from test files)
+- ✅ Target format: 8-channel AAC-LC, 44100 Hz, ~640 kbps
+- ✅ NO OpenSSL or Windows crypto library calls (verified via Frida)
+- ✅ Encryption is **custom in-house implementation**
 
-**What's Missing:**
-- ❌ Only 10 of 21,417 keys extracted (99.95% still needed)
-- ❌ Full-length playable stems (only 0.85s currently works)
-- ❌ Key generation algorithm not yet reverse engineered
+**What Doesn't Work:**
+- ❌ XOR with stored keys (produces invalid AAC)
+- ❌ Stream ciphers with evolving keystreams
+- ❌ Byte reordering/scrambling
+- ❌ All standard crypto approaches tested
+
+**Conclusion:**
+The encryption algorithm is proprietary and requires **binary reverse engineering** of Engine DJ Desktop or **dynamic memory analysis** to extract decrypted buffers.
 
 ---
 
-## Quick Start
+## Quick Reference
 
-### Prerequisites
-```bash
-pip install frida frida-tools
-pip install pyav # Optional for attempts/decode_pyav.py
-# FFmpeg and FFprobe in PATH
+### Using the Consolidated Library (Recommended)
+
+```python
+# New simplified approach using stems_lib.py
+from stems_lib import *
+
+# Load and analyze
+data = load_stems_file("file.stems")
+keys = load_keys_file("file.keys")
+structure = parse_stems_structure(data)
+
+# Quick operations
+info = get_file_info("file.stems")
+keys = quick_extract_keys("file.stems", "file.keys")
+quick_decrypt_xor("file.stems", "file.keys", "output.m4a")
 ```
 
-### Extract Working Stems (0.85 seconds)
+See **`CONSOLIDATION_REPORT.md`** for details on the new library.
+
+### View Complete Research Summary
 ```bash
-python decrypt_proper_frames.py
-python extract_working_stems.py
-# Output: drums_working.wav, bass_working.wav, melody_working.wav, vocals_working.wav
+# Comprehensive summary of all attempts and findings
+cat RESEARCH_SUMMARY.md
 ```
 
-### Decrypt First 10 Frames
+### Test All Decryption Approaches
 ```bash
-python decrypt_proper_frames.py
-# Output: stems_partial_1520frames.m4a
+# Test library directly
+python stems_lib.py "stems/1 0f7da717-a4c6-46be-994e-eca19516836c.stems"
+
+# Or run consolidated tests
+python CONSOLIDATED_TEST.py
 ```
 
-### Extract Individual Stems
+### Example: Simplified Script
 ```bash
-# Drums (channels 0-1)
-ffmpeg -i stems_partial_1520frames.m4a -t 0.85 \
-  -af "pan=stereo|c0=c0|c1=c1" -c:a pcm_s16le drums.wav
-
-# Bass (channels 2-3)
-ffmpeg -i stems_partial_1520frames.m4a -t 0.85 \
-  -af "pan=stereo|c0=c2|c1=c3" -c:a pcm_s16le bass.wav
-
-# Melody (channels 4-5)
-ffmpeg -i stems_partial_1520frames.m4a -t 0.85 \
-  -af "pan=stereo|c0=c4|c1=c5" -c:a pcm_s16le melody.wav
-
-# Vocals (channels 6-7)
-ffmpeg -i stems_partial_1520frames.m4a -t 0.85 \
-  -af "pan=stereo|c0=c6|c1=c7" -c:a pcm_s16le vocals.wav
+# Uses library - 30 lines vs 150 lines of old scripts
+python decrypt_with_lib.py "stems/1 0f7da717-a4c6-46be-994e-eca19516836c.stems"
 ```
 
-### Verify Decryption
+### Legacy Scripts (Still Work)
 ```bash
-# Check file structure
-ffprobe stems_partial_1520frames.m4a
+# Extract keys
+python extract_keys_from_stems.py
 
-# Test decoding
-ffmpeg -v verbose -i stems_partial_1520frames.m4a \
-  -t 5 -f null -
+# Best decryption attempt (fails but instructive)
+python decrypt_stems_with_keys.py
+
+# Analyze structure
+python analyze.py "stems/1 0f7da717-a4c6-46be-994e-eca19516836c.stems"
 ```
 
-### Analyse existing stems
+---
+
+## File Structure (Confirmed)
+
+```
+[ftyp atom: 28 bytes]           # MP4 file type
+[free atom: 8 bytes]            # Padding  
+[mdat atom header: 8 bytes]     # Media data container
+  [seed: 4 bytes]               # 0xe485b014 (same for both test files)
+  [Frame pattern repeats]:
+    [128 bytes: "key" block]    # Stored plaintext, NOT generated
+    [1520 bytes: encrypted]     # Actual encrypted audio data
+  Total: 19,754 frames (file 1), 14,623 frames (file 2)
+  Frame size: 1648 bytes per frame
+[moov atom: 71,122 bytes]       # Standard MP4 metadata
+```
+
+**Target decrypted format:** 8-channel AAC-LC, 44100 Hz, ~640 kbps  
+**Channels:** 0-1 Drums, 2-3 Bass, 4-5 Melody, 6-7 Vocals
+
+---
+
+## Decryption Attempts Summary
+
+### Tested Approaches (All Failed)
+
+1. **XOR with repeating keys** ❌
+   - Most promising but produces invalid AAC
+   - FFprobe recognizes format, AAC decoder rejects
+   - Only 0.05 seconds extractable from 6-minute file
+
+2. **Stream cipher (evolving keystream)** ❌
+   - Generated keystream from 128-byte blocks
+   - Similar false positive AAC syncs
+
+3. **No decryption (raw data)** ❌
+   - Tested if data is obfuscated vs encrypted
+   - Same AAC decoder errors confirm genuine encryption
+
+4. **128-byte blocks as audio** ❌
+   - Tested if "keys" are actually audio data
+   - Not valid audio
+
+5. **Partial XOR (first 128 bytes only)** ❌
+   - Similar false positive results
+
+6. **Combined frames (128+1520)** ❌
+   - Same decoding errors
+
+7. **Byte reordering/scrambling** ❌
+   - Tested unscrambling vs decryption
+   - Still invalid
+
+**All approaches produce ~100-7,500 "AAC syncs"** which are false positives (random 0xFFF bit patterns). Real AAC would have syncs every 300-1500 bytes consistently.
+
+### Frida Analysis Results (Critical)
+
+✅ **Confirmed:** NO calls to OpenSSL, Windows CryptoAPI, or BCrypt  
+✅ **Conclusion:** Encryption is **custom in-house implementation**
+
+---
+
+## Analyse existing stems
 
 Two stems files have been provided for conveniance in the `stems/` folder.
 
@@ -476,14 +546,76 @@ The problem is that raw data blocks reference undefined element tags.
 | Decoder compat | ❌ Proprietary | ✅ Standard |
 | Metadata | Minimal | Rich (JSON) |
 
-## Possible Explanations
+## Other methods tried
 
-1. **Stream Cipher Encryption** - Audio data encrypted with a key derived from file metadata or Engine DJ account
-2. **Proprietary Codec** - Not actually AAC, just using AAC headers for container compatibility
-3. **Modified Decoder** - Engine DJ uses a custom AAC decoder with non-standard element mapping
-4. **DRM Protection** - Intentional obfuscation to prevent extraction
+To proceed further, one of these approaches is required:
 
+### Binary Reverse Engineering
 
+See `GHIDRA_ANALYSIS_GUIDE.md`
+
+### Memory Dumping/Debugging
+
+Using Frida to view encryption libs loaded or extract keys. Unsuccessful so far.
+
+### Contacting inMusic support
+
+They were unhelpful. I was told to refund my stems purchase if I wasn't happy with the technical support they could give me.
+
+---
+
+## Repository Contents
+
+### Key Files
+- **`RESEARCH_SUMMARY.md`** - Complete summary of all research and findings
+- **`CONSOLIDATED_TEST.py`** - All 7 decryption approaches in one script
+- **`extract_keys_from_stems.py`** - Extract 128-byte blocks from .stems files
+- **`decrypt_stems_with_keys.py`** - Best decryption attempt (XOR, but fails)
+- **`analyze.py`** - Main file structure analyzer
+
+### Test Files
+- `stems/1 0f7da717-a4c6-46be-994e-eca19516836c.stems` (6:45, 19,754 frames)
+- `stems/2 0f7da717-a4c6-46be-994e-eca19516836c.stems` (4:58, 14,623 frames)
+- `stems/*.keys` - Extracted 128-byte blocks (one hex string per line)
+
+### Generated Outputs
+- `*_decrypted.m4a` - XOR decryption attempts (valid MP4, invalid audio)
+- `test*.m4a` - Various reconstruction tests
+- `*.wav` - Audio extraction attempts (mostly silent/corrupted)
+
+### Scripts (100+ total)
+- **Decryption tests:** `test_*.py`, `decrypt_*.py`
+- **Key analysis:** `analyze_key_*.py`, `extract_*.py`
+- **Frida hooks:** `capture_*.py`, `trace_*.py`, `hook_*.py`
+- **Format analysis:** `parse_*.py`, `analyze_*.py`
+- **Brute force:** `brute_*.py`, `find_*.py`
+
+---
+
+## What We Successfully Accomplished
+
+✅ **Complete file structure mapping** - Exact byte offsets and frame patterns  
+✅ **Key extraction** - All 34,377 keys extracted from 2 test files  
+✅ **MP4 container understanding** - Can rebuild valid MP4 files  
+✅ **Ruled out standard encryption** - XOR, AES, stream ciphers all tested  
+✅ **Frida analysis** - Confirmed no standard crypto libraries  
+✅ **Comprehensive testing** - 7+ approaches, 100+ scripts, ~15,000 lines of code  
+✅ **Full documentation** - Complete research trail preserved  
+
+---
+
+## Comparison with Standard Stem Format
+
+| Feature | Engine DJ (.stems) | NI Stem (.stem.mp4) |
+|---------|-------------------|---------------------|
+| Audio streams | 1 × 8-channel | 5 × stereo |
+| Codec | AAC (encrypted) | AAC or ALAC |
+| Channel config | PCE-based | Standard stereo |
+| Decoder compat | ❌ Proprietary | ✅ Standard |
+| Encryption | Custom algorithm | None or standard DRM |
+| Metadata | Minimal | Rich (JSON) |
+
+---
 
 ## Contributing
 

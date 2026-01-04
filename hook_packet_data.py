@@ -31,8 +31,8 @@ Interceptor.attach(avcodec_receive_packet, {
             var data_ptr = this.pkt.add(0x18).readPointer();
             var size = this.pkt.add(0x20).readInt();
             
-            // Show first 10 frames in detail
-            if (packetCount <= 10) {
+            // Show first 25000 frames in detail (capture all keys)
+            if (packetCount <= 25000) {
                 console.log("\\n[Packet #" + packetCount + "] (UNENCRYPTED FROM FFMPEG)");
                 console.log("  Size: " + size + " bytes");
                 console.log("  Data pointer: " + data_ptr);

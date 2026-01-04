@@ -11,12 +11,39 @@ print("=" * 60)
 
 # Load all 10 keys
 keys = []
-with open('keys_extracted.txt', 'r') as f:
-    content = f.read()
 
-for match in re.finditer(r'Packet \d+.*?:((?:\s+[a-f0-9]{2})+)', content):
-    hex_str = ''.join(match.group(1).split())
-    keys.append(bytes.fromhex(hex_str))
+# Try keys_extracted.txt first
+try:
+    with open('keys_extracted.txt', 'r') as f:
+        content = f.read()
+    
+    # Try current format: "Key N:"
+    for match in re.finditer(r'Key \d+:.*?(\n\s{2}[a-f0-9\s]+(?:\n\s{2}[a-f0-9\s]+)*)', content):
+        hex_text = match.group(1)
+        key_bytes = bytes.fromhex(hex_text.replace('\n', '').replace(' ', ''))
+        keys.append(key_bytes)
+    
+    if len(keys) == 0:
+        # Try old format: "Packet N:"
+        for match in re.finditer(r'Packet \d+.*?:((?:\s+[a-f0-9]{2})+)', content):
+            hex_str = ''.join(match.group(1).split())
+            keys.append(bytes.fromhex(hex_str))
+except:
+    pass
+
+# If no keys loaded, try extracted_keys_by_id.txt
+if len(keys) == 0:
+    try:
+        with open('extracted_keys_by_id.txt', 'r') as f:
+            for line in f:
+                if line.startswith('ID 1:'):
+                    # Extract just the first key (128 bytes = 256 hex chars)
+                    hex_str = line.split(':', 1)[1].strip()
+                    key = bytes.fromhex(hex_str[:256])  # First 128 bytes
+                    keys.append(key)
+                    break
+    except:
+        pass
 
 print(f"[+] Loaded {len(keys)} keys (128 bytes each)")
 
