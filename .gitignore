@@ -27,3 +27,5 @@ temp_*
 # OS
 .DS_Store
 Thumbs.db
+ghidra_project/
+database/
