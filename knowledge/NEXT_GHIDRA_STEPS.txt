@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""
+CRITICAL INSIGHT: 
+
+The key at param_1[0x40] is NOT set in the decrypt call chain.
+It must be set BEFORE decryption starts.
+
+Call chain:
+  main() / file_load()
+    ↓
+  UndefinedFunction_00ae7628 (dispatcher, case 2 = KEY SETUP, case 5 = DECRYPT)
+    ↓ (case 2)
+  [SOMETHING THAT SETS param_1[0x40]]
+    ↓ (case 5)
+  UndefinedFunction_00af9ffc
+    ↓
+  FUN_00ae6b14
+    ↓
+  FUN_00acdcec + FUN_00b03aec (decrypt)
+
+THE KEY IS SET IN DISPATCHER CASE 2!
+
+Next steps in Ghidra:
+1. Open UndefinedFunction_00ae7628
+2. Find the switch/case statement (or if-else chain that acts like it)
+3. Find the code path for case 2
+4. That code calls a vtable method at (*param_1 + 0x90)()
+5. BUT WAIT - we already checked this, it was a stub...
+6. SO THE KEY MUST BE SET IN THE CONSTRUCTOR!
+
+The cipher context (param_1) is created BEFORE case 2 is called.
+The key must be assigned during cipher context construction.
+
+NEW THEORY:
+param_1 is a cipher context object that is CONSTRUCTED with the key
+built into it. This happens at object initialization time, not in
+the decrypt functions.
+
+Search for:
+- Where param_1 is allocated
+- Where param_1's constructor is called
+- What parameters are passed to the constructor
+- These parameters likely include the key
+
+The key is probably NOT stored as 16 bytes, but as:
+- 16 bytes in encrypted form
+- 16 bytes split across structure fields
+- Derived from a master key during construction
+- Part of the object's initialization
+"""
+
+print(__doc__)
+
+print("""
+ACTION ITEMS FOR GHIDRA:
+
+1. RIGHT-CLICK on UndefinedFunction_00ae7628
+   - Select "References" → "Show References to UndefinedFunction_00ae7628"
+   - Find where this function is CALLED
+   - Analyze the caller - this shows what creates param_1
+
+2. In the caller, find the allocation and construction:
+   - Look for malloc(), new(), or __cxa_allocate_exception
+   - Look for constructor calls (functions called immediately after allocation)
+   - These constructors receive the key
+
+3. Search binary for string patterns:
+   - "aes" (case insensitive)
+   - "cbc" (case insensitive)
+   - Any constants that might be a key seed
+
+4. Look at vtable structures:
+   - param_1 has vtables (referenced at *param_1 + 0x80, 0x90, etc.)
+   - Find these vtable classes
+   - The cipher context class definition might show members including key
+
+5. Most likely: The key is HARDCODED in a global constant
+   - Search for 16-byte sequences in .rodata section
+   - Search for initialization of key in constructors
+   - Key might be XOR-encoded: look for XOR loops
+""")

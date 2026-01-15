@@ -29,3 +29,10 @@ temp_*
 Thumbs.db
 ghidra_project/
 database/
+
+# Ghidra (projects + caches)
+*.gpr
+*.rep/
+ghidra.rep/
+*.lock
+*.lock~

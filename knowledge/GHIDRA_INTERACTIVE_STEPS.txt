@@ -1,0 +1,136 @@
+# GHIDRA INTERACTIVE ANALYSIS - STEP BY STEP
+
+## Current Focus: Find Where AES Key is Set
+
+We know:
+- Key is at offset 0x40 in cipher context (param_1[0x40])
+- Key is 16 bytes
+- It must be set BEFORE decryption functions are called
+- It's likely either:
+  a) A hardcoded constant in .rodata
+  b) Copied from somewhere during initialization
+  c) Derived by a function during setup
+
+---
+
+## IMMEDIATE GHIDRA ACTIONS
+
+### ACTION 1: Find the Dispatcher Function
+**In Ghidra:**
+1. Go to address: **0x00ae7628** (UndefinedFunction_00ae7628)
+2. This is the state machine dispatcher
+3. Look for the switch/case statement (might be if-else chain)
+4. Find **case 2** (this is key setup)
+5. Screenshot or copy the decompiled code from the case 2 block
+
+**What you're looking for:**
+- What function is called in case 2?
+- What parameters are passed?
+- Does it modify param_1[0x40]?
+
+---
+
+### ACTION 2: Search for EVP_EncryptInit_ex
+**In Ghidra:**
+1. Go to **Search** → **For Functions...**
+2. Search for: `EVP_EncryptInit_ex`
+3. If found, right-click → **References** → **Show References to**
+4. Click on the reference to see the calling code
+5. Look at the **decompiled C code** in the right pane
+6. **Find the 4th parameter - this is the key!**
+
+**In ARM calling convention:**
+```
+r0 = ctx
+r1 = cipher (EVP_aes_128_cbc)
+r2 = engine (NULL)
+r3 = key  ← THIS IS WHAT WE WANT
+[sp, #0] = iv
+```
+
+**Find:**
+- What is r3 before the EVP_EncryptInit_ex call?
+- Where does r3 come from? (register source)
+- Is it a constant, a parameter, or computed?
+
+---
+
+### ACTION 3: Search in Memory/Data
+**In Ghidra:**
+1. **Window** → **Memory** (or Listing if already open)
+2. Ctrl+G to go to address
+3. Go to address: **0x00800000** (or search for .rodata section)
+4. Use Ctrl+F to search for readable strings:
+   - Search for: "stems" or "aes" or "cbc"
+5. When found, **look at the memory AFTER that string**
+6. Look for 16-byte sequences nearby that could be keys
+
+**What 16 bytes looks like:**
+- Not all zeros: `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` ✗
+- Not all ones: `FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF` ✗
+- Reasonable key: `8f 8a 07 f4 40 50 94 e5 38 60 84 e2 00 00 55 e3` ✓
+
+---
+
+## QUESTIONS TO ANSWER
+
+After doing the above actions, answer these:
+
+1. **What is at address 0x00ae7628?** (Dispatcher function)
+   - Copy the decompiled C code for case 2
+   - Paste in a new file called `DISPATCHER_CASE2.txt`
+
+2. **If EVP_EncryptInit_ex exists:**
+   - What is the source of the 4th parameter (key)?
+   - Is it `param_1[0x40]`? Or a global constant? Or computed?
+   - Copy the calling code
+
+3. **Did you find 16-byte sequences in memory?**
+   - List any you found
+   - Copy the hex values
+   - Note their addresses
+
+4. **Who calls the dispatcher?**
+   - Right-click UndefinedFunction_00ae7628
+   - References → Show References To
+   - Note the parent function name
+
+---
+
+## IF YOU FIND THE KEY
+
+Once you find a 16-byte candidate:
+
+1. Save it to a file: `POTENTIAL_KEY.txt`
+   Format: `<key_hex_value>` (e.g., `8f8a07f4405094e5386084e2000055e3`)
+
+2. I'll test it immediately with: `test_found_key.py`
+
+3. If it works on ALL frames of all stems files, we're done!
+
+---
+
+## BACKUP PLAN IF NOTHING FOUND
+
+If you can't find anything obvious:
+1. Export the full decompiled code of FUN_00ae6b14 and its callers
+2. Export the decompiled code of the dispatcher
+3. Export the decompiled code of any EVP_EncryptInit_ex callers
+4. Paste in files for manual analysis
+
+---
+
+## ADDRESSES TO CHECK
+
+- **0x00ae7628**: Dispatcher (main state machine)
+- **0x00af9ffc**: Decrypt entry point
+- **0x00ae6b14**: Frame loop decrypt
+- **0x00acdcec**: Cipher init
+- **0x00b03aec**: NEON XOR operation
+
+Right-click each, select **References** to find:
+- Who calls them?
+- Who do they call?
+- What data is passed?
+
+Good luck!

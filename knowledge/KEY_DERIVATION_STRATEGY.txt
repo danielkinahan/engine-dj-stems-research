@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""
+Key derivation code analysis strategy:
+
+Instead of finding the key VALUE, find the KEY DERIVATION CODE.
+
+Known facts:
+- Key is at offset 0x40 in cipher context (param_1[0x40])
+- FUN_00acdcec initializes the cipher
+- FUN_00acdcec is called from FUN_00ae6b14 (frame loop)
+- FUN_00ae6b14 is called from UndefinedFunction_00af9ffc (decrypt entry)
+- UndefinedFunction_00af9ffc is called from UndefinedFunction_00ae7628 (dispatcher, case 5)
+
+NEXT STEP:
+In Ghidra, trace the function calls BEFORE FUN_00acdcec to find key setup:
+
+1. Look at FUN_00ae6b14 - does it call anything before FUN_00acdcec?
+   This would be the "set key" or "derive key" function
+
+2. Look at UndefinedFunction_00af9ffc - check param_1 setup
+   Where does param_1 come from? What is initialized before decrypt?
+
+3. Look at dispatcher case 2 (key setup case):
+   What function is called? Does it modify param_1[0x40]?
+
+4. Search for all references to offset 0x40 in the binary
+   Find where param_1[0x40] is assigned to
+   Trace backwards to the assignment source
+
+5. Look for:
+   - EVP_EncryptInit calls (how is key passed to OpenSSL?)
+   - PBKDF2 or key derivation functions
+   - AES key schedule setup
+   - Any hardcoded constants near 0x40 offset handling
+"""
+
+print(__doc__)
+print("\nTO DO IN GHIDRA:")
+print("=" * 80)
+print("""
+1. Open FUN_00ae6b14 (frame loop that calls FUN_00acdcec)
+   - What calls happen BEFORE FUN_00acdcec?
+   - Does it call a "key setup" or "derive key" function?
+   
+2. Open UndefinedFunction_00ae7628 (dispatcher)
+   - Find case 2 (key setup case based on our notes)
+   - What function is called in that case?
+   - Trace that function
+   
+3. Search for "0x40" or "40" in the entire binary
+   - Find all assignments to param_X[0x40]
+   - Find where the 16 bytes come from
+   
+4. Search for EVP_EncryptInit or EVP_EncryptInit_ex
+   - This shows how the key is passed to OpenSSL
+   - The source of param_1 at that call is the key setup
+   
+5. Look for any function that:
+   - Takes the track UUID as input
+   - Takes the IV as input  
+   - Performs XOR operations on them
+   - Produces 16 bytes
+   - This would be the key derivation function
+
+KEY HYPOTHESIS:
+The key is probably derived as:
+  KEY = some_function(TRACK_UUID, SESSION_ID, or FIRMWARE_CONSTANT)
+
+If it's hardcoded to the firmware (offline operation):
+  KEY = md5 or sha256 of some constant string in the binary
+  OR KEY = XOR of multiple constants
+  OR KEY = PBKDF2(constant_salt, iteration_count)
+""")
